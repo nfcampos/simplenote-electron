@@ -29,7 +29,7 @@ export default class NoteDetail extends Component {
 	componentDidMount = () => {
 		// Ensures note gets saved if user abruptly quits the app
 		window.addEventListener( 'beforeunload', this.queueNoteSave.flush );
-		window.addEventListener( 'keydown', this.interceptTabPresses );
+		// window.addEventListener( 'keydown', this.interceptTabPresses );
 	};
 
 	componentWillReceiveProps = () => {
@@ -110,9 +110,8 @@ export default class NoteDetail extends Component {
 
 	interceptTabPresses = event => {
 		if (
-			'Tab' !== event.code ||
+			'Tab' !== event.key ||
 			! this.noteEditor ||
-			'TEXTAREA' !== event.target.nodeName ||
 			this.props.previewingMarkdown ||
 			event.altKey ||
 			event.ctrlKey ||
@@ -237,6 +236,7 @@ export default class NoteDetail extends Component {
 						disabled={ !! ( note && note.data.deleted ) }
 						onChange={ this.queueNoteSave }
 						onKeyPress={ this.handleKey }
+						onKeyDown={ this.interceptTabPresses }
 						style={ divStyle }
 					/>
 				}
