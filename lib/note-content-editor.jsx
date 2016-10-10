@@ -4,7 +4,6 @@ import {
 	Editor,
 	EditorState,
 	Modifier,
-	SelectionState,
 } from 'draft-js';
 import { invoke, noop } from 'lodash';
 
@@ -12,23 +11,55 @@ function plainTextContent( editorState ) {
 	return editorState.getCurrentContent().getPlainText( '\n' )
 }
 
+// contains methods that mirror the methods on Modifier with 2 differences:
+// 1. operate on EditorState instances
+// 2. move selection to the natural place following the modification
 const EditorStateModifier = {
 	insertText( editorState, selection, characters ) {
-		return EditorState.push(
+		// this function assumes selection is collapsed
+
+		const afterInsert = EditorState.push(
 			editorState,
 			Modifier.insertText(
 				editorState.getCurrentContent(), selection, characters
 			),
 			'insert-characters'
 		);
+
+		const prevSelection = editorState.getSelection();
+		const prevOffset = prevSelection.getStartOffset();
+		const offsetDiff = characters.length;
+
+		// move selection forward by nr of chars that were added
+		const nextSelection = prevSelection.merge( {
+			anchorOffset: prevOffset + offsetDiff,
+			focusOffset: prevOffset + offsetDiff,
+		} )
+
+		return EditorState.forceSelection( afterInsert, nextSelection );
 	},
 
 	removeRange( editorState, selection = editorState.getSelection() ) {
-		return EditorState.push(
+		// this function assumes startKey and endKey are the same
+		// ie. selection doesn't span more than one block
+
+		const afterRemove = EditorState.push(
 			editorState,
 			Modifier.removeRange( editorState.getCurrentContent(), selection ),
 			'remove-range'
 		);
+
+		const prevSelection = editorState.getSelection();
+		const prevOffset = prevSelection.getStartOffset();
+		const offsetDiff = selection.getEndOffset() - selection.getStartOffset();
+
+		// move selection backward by nr of chars that were removed
+		const nextSelection = prevSelection.merge( {
+			anchorOffset: prevOffset - offsetDiff,
+			focusOffset: prevOffset - offsetDiff,
+		} )
+
+		return EditorState.forceSelection( afterRemove, nextSelection );
 	},
 }
 
@@ -93,7 +124,7 @@ export default class NoteContentEditor extends React.Component {
 		// prevent moving focus to next input
 		e.preventDefault()
 
-		let editorState = this.state.editorState;
+		const editorState = this.state.editorState;
 		const selection = editorState.getSelection();
 
 		if ( ! selection.isCollapsed() ) {
@@ -112,24 +143,13 @@ export default class NoteContentEditor extends React.Component {
 
 			const offset = atStart ? 0 : selectionStart
 
-			// add tab
-			editorState = EditorStateModifier.insertText(
+			const newEditorState = EditorStateModifier.insertText(
 				editorState,
-				SelectionState.createEmpty( block.getKey() ).merge( {
-					anchorOffset: offset,
-					focusOffset: offset,
-				} ),
+				selection.merge( { anchorOffset: offset, focusOffset: offset } ),
 				'\t'
 			);
 
-			// move selection to where it was
-			editorState = EditorState.forceSelection(
-				editorState,
-				SelectionState.createEmpty( block.getKey() ).merge( {
-					anchorOffset: selectionStart + 1, // +1 because 1 char was added
-					focusOffset: selectionStart + 1,
-				} )
-			);
+			this.handleEditorStateChange( newEditorState );
 		} else {
 			// outdenting
 
@@ -138,27 +158,14 @@ export default class NoteContentEditor extends React.Component {
 			const prevChar = block.getText().slice( rangeStart, rangeEnd );
 
 			if ( prevChar === '\t' ) {
-				// remove tab
-				editorState = EditorStateModifier.removeRange(
+				const newEditorState = EditorStateModifier.removeRange(
 					editorState,
-					SelectionState.createEmpty( block.getKey() ).merge( {
-						anchorOffset: rangeStart,
-						focusOffset: rangeEnd,
-					} )
+					selection.merge( { anchorOffset: rangeStart, focusOffset: rangeEnd } )
 				);
 
-				// move selection to where it was
-				editorState = EditorState.forceSelection(
-					editorState,
-					SelectionState.createEmpty( block.getKey() ).merge( {
-						anchorOffset: selectionStart - 1, // -1 because 1 char was removed
-						focusOffset: selectionStart - 1,
-					} )
-				);
+				this.handleEditorStateChange( newEditorState );
 			}
 		}
-
-		this.handleEditorStateChange( editorState );
 	}
 
 	render() {
